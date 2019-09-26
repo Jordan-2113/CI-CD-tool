@@ -1,0 +1,52 @@
+pipeline {
+  agent {
+    label "jenkins-maven"
+  }
+  environment {
+    DEPLOY_NAMESPACE = "staging"
+    ACCEPT_MR = env.BRANCH_NAME.toLowerCase().matches("promote(.*)")
+  }
+  stages {
+    stage('Start') {
+      when {
+        branch 'master'
+      }
+      steps {
+        slackSend (color: '#FFFF00', message: "STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+      }
+    }    
+    stage('Validate Environment') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('maven') {
+          dir('env') {
+            sh "printenv | sort"
+            sh 'jx step helm build'
+          }
+        }
+      }
+    }
+    stage('Update Environment') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('maven') {
+          dir('env') {
+            sh 'jx step helm apply'
+          }
+        }
+      }
+    }
+  }
+  post {
+    success {
+      slackSend (color: '#00FF00', message: "SUCCESSFUL: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+    }
+    failure {
+      slackSend (color: '#FF0000', message: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+    }    
+  }  
+}

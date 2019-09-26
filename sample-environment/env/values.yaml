@@ -1,0 +1,71 @@
+#
+# sample-api
+#
+sample-api:
+  env:
+    ENV: 'staging'
+    DB_HOST: 'mongodb'
+    DB_PORT: '27017'
+    DB_DATABASE: 'sampledb'
+    REDIS_SERVER: 'redis://staging-redis-master:6379'
+    REDIS_CHANNEL: 'socket.io'
+#
+# sample2-api
+#
+sample-api:
+  env:
+    ENV: 'staging'
+    DB_HOST: 'mongodb'
+    DB_PORT: '27017'
+    DB_DATABASE: 'sample2db'
+    REDIS_SERVER: 'redis://staging-redis-master:6379'
+    REDIS_CHANNEL: 'socket.io' 
+#
+# mongo
+#
+mongodb:
+  image:
+    repository: bitnami/mongodb
+    tag: '4.0.11'
+  mongodbDatabase: sampledb
+  mongodbUsername: sampleuser
+  persistence:
+    size: 50Gi
+  service:
+    type: ClusterIP
+#
+# redis
+#
+redis:
+  master:
+    persistence:
+      enabled: false
+  cluster:
+    enabled: false
+#
+# jenkinsx values
+#
+PipelineSecrets: {}
+cleanup:
+  Annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-delete-policy: hook-succeeded
+  Args:
+  - --cleanup
+controllerbuild: {}
+expose:
+  Annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: hook-succeeded
+  Args:
+  - --v
+  - 4
+  config:
+    domain: sb.mile-two.com
+    exposer: Ingress
+    http: "true"
+jenkins:
+  Servers:
+    Global: {}
+prow: {}   
+
