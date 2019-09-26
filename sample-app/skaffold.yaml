@@ -1,0 +1,28 @@
+apiVersion: skaffold/v1beta2
+kind: Config
+build:
+  artifacts:
+  - image: changeme
+    context: .
+    docker: {}
+  tagPolicy:
+    envTemplate:
+      template: '{{.DOCKER_REGISTRY}}/mile-two/sample-app:{{.VERSION}}'
+  local: {}
+deploy:
+  kubectl: {}
+profiles:
+- name: dev
+  build:
+    tagPolicy:
+      envTemplate:
+        template: '{{.DOCKER_REGISTRY}}/mile-two/sample-app:{{.DIGEST_HEX}}'
+    local: {}
+  deploy:
+    helm:
+      releases:
+      - name: sample-app
+        chartPath: charts/sample-app
+        setValueTemplates:
+          image.repository: '{{.DOCKER_REGISTRY}}/mile-two/sample-app'
+          image.tag: '{{.DIGEST_HEX}}'

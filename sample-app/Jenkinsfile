@@ -1,0 +1,134 @@
+pipeline {
+  agent {
+    label "jenkins-nodejsm2"
+  }
+  environment {
+    ORG = 'mile-two'
+    APP_NAME = 'sample-app'
+    FAILURE_SLACK_CHANNEL = 'aplos-builds'
+    ALL_SLACK_CHANNEL = 'builds'
+    CHARTMUSEUM_CREDS = credentials('jenkins-x-chartmuseum')
+    PREVIEW_COMMENT = sh(returnStdout: true, script: "git show -s --format=format:'%s' HEAD").toLowerCase().trim()
+    // DO_PREVIEW will be true if the comment starts with "preview"
+    DO_PREVIEW = env.PREVIEW_COMMENT.toLowerCase().matches("preview(.*)")
+    K8SNAMESPACE = 'dev'
+    CLUSTER = 'sb'
+    // This is a workaround, in the future I hope "jx get preview --current" works and can be used to grab the url
+    PREVIEW_URL = "http://${APP_NAME}.${K8SNAMESPACE}-${ORG}-${APP_NAME}-pr-${BRANCH_NAME}.${CLUSTER}.${ORG}.com"
+  }
+  stages {
+    stage('Start') {
+      steps {
+        slackSend (channel: "${ALL_SLACK_CHANNEL}", color: '#FFFF00', message: "STARTED: - Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL}) ${PREVIEW_COMMENT}")
+      }
+    }
+
+    stage('CI Build and push snapshot') {
+      when {
+        expression {
+          return env.BRANCH_NAME == 'master' || DO_PREVIEW == 'true';
+        }
+      }
+      environment {
+        PREVIEW_VERSION = "0.0.0-SNAPSHOT-$BRANCH_NAME-$BUILD_NUMBER"
+        PREVIEW_NAMESPACE = "$APP_NAME-$BRANCH_NAME".toLowerCase()
+        HELM_RELEASE = "$PREVIEW_NAMESPACE".toLowerCase()
+      }
+      steps {
+        container('nodejs') {
+          sh "printenv | sort"
+          sh "npm install"
+          sh "npm run lint"
+          sh "npm run build"
+          sh "CI=true DISPLAY=:99 npm test"
+          sh "export VERSION=$PREVIEW_VERSION && skaffold build -f skaffold.yaml"
+          sh "jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:$PREVIEW_VERSION"
+          dir('./charts/preview') {
+            sh "make preview"
+            sh "jx preview --app $APP_NAME --dir ../.."
+          }
+        }
+        // Preview URL will look like: http://myapp.dev-mile-two-myapp-pr-aegslackpr.sb.mile-two.com
+        slackSend (channel: "${ALL_SLACK_CHANNEL}", color: '#FFFF00', message: "PREVIEW: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL}) Preview URL: ${env.PREVIEW_URL}")
+      }
+    }
+    stage('e2e') {
+      when {
+        expression {
+          return env.BRANCH_NAME == 'master' || DO_PREVIEW == 'true';
+        }
+      }
+      steps {
+        container('nodejs') {
+          sh "CYPRESS_APP_URL=${PREVIEW_URL} npm run e2e"
+        }
+      }
+    }
+    stage('Build Release') {
+      when {
+        branch 'master'
+      }
+      steps {
+        container('nodejs') {
+          // ensure we're not on a detached head
+          sh "git checkout master"
+          sh "git config --global credential.helper store"
+          sh "jx step git credentials"
+
+          // so we can retrieve the version in later steps
+          sh "echo \$(jx-release-version) > VERSION"
+          sh "jx step tag --version \$(cat VERSION)"
+
+          sh "npm install"
+          sh "npm run build"
+
+          //sonar
+          sh "sonar-scanner -Dsonar.projectVersion=\$(cat VERSION)"
+
+          sh "export VERSION=`cat VERSION` && skaffold build -f skaffold.yaml"
+          
+          // Check for CVEs
+          sh "jx step validate --min-jx-version 1.2.36"
+          //sh "jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:\$(cat VERSION)"
+          sh "jx step post build --image \$JENKINS_X_DOCKER_REGISTRY_SERVICE_HOST:\$JENKINS_X_DOCKER_REGISTRY_SERVICE_PORT/$ORG/$APP_NAME:\$(cat VERSION)"
+        }
+      }
+    }
+    stage('Promote to Environments') {
+      when {
+        branch 'master'
+      }
+      environment {
+        CHART_VER = sh(returnStdout: true, script: "cat VERSION").trim()
+      }       
+      steps {
+        container('nodejs') {
+          dir('./charts/sample-app') {
+            sh "jx step changelog --batch-mode --version v\$(cat ../../VERSION)"
+
+            // release the helm chart
+            sh "jx step helm release"
+
+            // promote release
+            sh "jx promote -b --all-auto --timeout 5m --version \$(cat ../../VERSION)"
+
+            // slack chart version
+            slackSend (channel: "${ALL_SLACK_CHANNEL}", color: '#FFFF00', message: "RELEASE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL}) Chart Version: ${env.CHART_VER}")
+          }
+        }
+      }
+    }
+  }
+  post {
+        success {
+          slackSend (channel: "${ALL_SLACK_CHANNEL}", color: '#00FF00', message: "SUCCESSFUL: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+        }
+        failure {
+          slackSend (channel: "${ALL_SLACK_CHANNEL}", color: '#FF0000', message: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+          slackSend (channel: "${FAILURE_SLACK_CHANNEL}", color: '#FF0000', message: "FAILED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]' (${env.BUILD_URL})")
+        }    
+        always {
+          cleanWs()
+        }
+  }
+}
