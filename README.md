@@ -41,3 +41,4 @@ cicd-sample             <- This repo
  └── sample-environment <- Sample environment config, would be its own repo
 ```
 
+The [sample-app folder](sample-app) 
