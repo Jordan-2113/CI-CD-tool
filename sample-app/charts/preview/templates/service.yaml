@@ -1,0 +1,10 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: sample-api
+spec:
+  type: ExternalName
+  # Target service DNS name
+  externalName: sample-api.staging.svc.cluster.local
+  ports:
+  - port: 6010
