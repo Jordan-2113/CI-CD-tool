@@ -5,7 +5,7 @@ pipeline {
   environment {
     ORG = 'mile-two'
     APP_NAME = 'sample-app'
-    FAILURE_SLACK_CHANNEL = 'aplos-builds'
+    FAILURE_SLACK_CHANNEL = 'sample-builds'
     ALL_SLACK_CHANNEL = 'builds'
     CHARTMUSEUM_CREDS = credentials('jenkins-x-chartmuseum')
     PREVIEW_COMMENT = sh(returnStdout: true, script: "git show -s --format=format:'%s' HEAD").toLowerCase().trim()
@@ -85,11 +85,11 @@ pipeline {
           //sonar
           sh "sonar-scanner -Dsonar.projectVersion=\$(cat VERSION)"
 
+          //package
           sh "export VERSION=`cat VERSION` && skaffold build -f skaffold.yaml"
           
           // Check for CVEs
           sh "jx step validate --min-jx-version 1.2.36"
-          //sh "jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:\$(cat VERSION)"
           sh "jx step post build --image \$JENKINS_X_DOCKER_REGISTRY_SERVICE_HOST:\$JENKINS_X_DOCKER_REGISTRY_SERVICE_PORT/$ORG/$APP_NAME:\$(cat VERSION)"
         }
       }

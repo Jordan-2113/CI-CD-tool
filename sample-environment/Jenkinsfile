@@ -4,7 +4,6 @@ pipeline {
   }
   environment {
     DEPLOY_NAMESPACE = "staging"
-    ACCEPT_MR = env.BRANCH_NAME.toLowerCase().matches("promote(.*)")
   }
   stages {
     stage('Start') {
