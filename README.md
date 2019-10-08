@@ -100,7 +100,9 @@ charts
     └── values.yaml
 ```
 
-Each chart, because it is a Helm chart, has the same layout. Notice the [preview chart](sample-app/charts/preview) contains a *requirements.yaml* file to list all of the application's dependancies. In order to preview your application you will need to include the resources it depends on to function like an API and its database. The following is the yaml snipit in the *requirements.yaml* use to install the API and databae each time a preview environment is requiested.  This will allow the user to preview the fully functional application before merging to master. 
+#### preview chart
+
+Each chart, because it is a Helm chart, has a simular layout, however notice how the [preview chart](sample-app/charts/preview) contains a *requirements.yaml* file. The *preview chart* is really an on-demand environment chart and the [requirements.yaml](sample-app/charts/preview/requirements.yaml) is used to list all of the application's dependancies suchs as an API and database.  This will allows the developer to preview a fully functional application before merging to master. Also, the pipeline is able to run fully automatedend-to-end test in a "disposable" preview environment. The following yaml snipit from the [requirements.yaml](sample-app/charts/preview/requirements.yaml) shows how the API, databae and redis are installed each time a preview environment is created.
 
 ```yaml
 - name: sample-api
@@ -113,3 +115,7 @@ Each chart, because it is a Helm chart, has the same layout. Notice the [preview
   repository: https://kubernetes-charts.storage.googleapis.com
   version: 6.4.5
 ```
+
+#### application chart
+
+
