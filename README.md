@@ -35,7 +35,7 @@ We use Git as the single source of truth for declarative infrastructure and appl
 ...
 ```
 
-Although the environment repo can be modified manually to deploy new versions of the application, most of the time the change is preformed automatically via the CI pipeline. Once an application build is successful the [jx step post build](sample-environment/Jenkinsfile#L95) command will open a Pull Request against the environment repo.  For the integration environments the Pull Requests are accepted automatically and this initiates a [CD pipeline](sample-environment/Jenkinsfile) which will perform the actual deployment of the application into the environment. For production environments the Pull Requests are not automatically accepted rather they can only be accepted by certain individuals, thereby serving as an audit and control function.
+Although the environment repo can be modified manually to deploy new versions of the application, most of the time the change is preformed automatically via the CI pipeline. Once an application build is successful the [jx step post build](sample-app/Jenkinsfile#L93) command will open a Pull Request against the environment repo.  For the integration environments the Pull Requests are accepted automatically and this initiates a [CD pipeline](sample-environment/Jenkinsfile) which will perform the actual deployment of the application into the environment. For production environments the Pull Requests are not automatically accepted rather they can only be accepted by authorized individuals, thereby serving as an audit and control function.
 
 ## CI/CD Pipelines
 
@@ -53,7 +53,8 @@ Let's take a closer look at the [CI pipeline](sample-app/Jenkinsfile) for the ap
 * **Build Release** - If the e2e tests are successful then a release is created. The steps for building a release are:
   * sonar-scanner is used to perform code quality and security scanning.  The results are saved in **sonar**qube according to the [sonar-project.properties](sample-app/sonar-project.properties) file.
   * skaffold is used to create the docker image and push it to the container registry according to the [skaffold.yaml](samle-app/skaffold.yaml) file.
-  * Jenkins X uses anchore to scan the docker image just created for CVEs.  Anchore will scan the "OS" files in the image as well as the application libraries such as node modules or python libraries. 
+  * Jenkins X uses anchore to scan the docker image just created for CVEs.  Anchore will scan the "OS" files in the image as well as the application libraries such as node modules or python libraries.
+  * Jenkins X uses helm to publish the application chart to ChartMuseum.
 
 * **Promote to Environments** - Lastly Jenkins X will automatically deploy the release into any permanent environment, marked as *Auto* deploy, in our case the *Staging* environment. It does this by updating the application version number in the [environment's requirements.yaml](sample-environment/env/requirements.yaml) file and then opening a PR for the change. The PR is automatically merged into master and this initiates the [environment's CD pipeline](sample-environment/Jenkinsfile)
 
@@ -66,20 +67,22 @@ Let's take a look at the [environment's CD pipeline](sample-environment/Jenkinsf
 
 ## Charts
 
+Each project contains a helm chart to aid in the Kubernetes deployment.
+
 ### Environment Charts
 
-Each environment repo contains a helm chart that is used to describe its Kubernetes deployment. All the configuration, environment specific application values and a list of applications are described in this repo in the [env chart](sample-environment/env) with the following structure:
+Each environment repo contains a helm chart that is used to describe its Kubernetes deployment. All the configuration, environment specific application values and a list of applications are described in this repo in the [environment chart](sample-environment/env). The layout of the environment chart is shown below:
 
 ```text
 env/
 ├── Chart.yaml
-├── requirements.yaml  <-- A list of applications sub-charts in this environment
+├── requirements.yaml  <-- A list of applications, include as sub-charts
 ├── templates
 └── values.yaml        <-- Environment specific values for this environment
 ```
 
-* `Chart.yaml` - contains the name and version of this chart
-* `requirements.yaml` - contains the list of applications sub-charts deployed in this environment. For example, the following yaml snippet shows the inclusion of `samle-app` into this environment:
+* [Chart.yaml](sample-environment/env/Chart.yaml) - contains the name and version of this chart
+* [requirements.yaml](sample-environment/env/requirements.yaml) - contains the list of applications sub-charts deployed in this environment. For example, the following yaml snippet shows the inclusion of `samle-app` into this environment:
 
     ```yaml
     - name: sample-app
@@ -87,8 +90,8 @@ env/
       version: 0.1.55
     ```
 
-* `templates` - Kubernetes manifest files unique to this environment. For example, environment specific config maps might be included here.
-* `values.yaml` - contains all the property override valeus for this environment. For example, when the [CD pipeline](sample-environment/Jenkinsfile) runs, the [env chart](sample-environment/env) is applied using `helm install`.  This will use the following values for the *sample-api* deployment. In this cae we see the environment specific values for `DB_HOST`, `REDIS_SERVER` and so on:  
+* [templates](sample-environment/env/templates) - Kubernetes manifest files unique to this environment. For example, environment specific config maps might be included here.
+* [values.yaml](sample-environment/env/values.yaml) - contains all the property override values for this environment. For example, when the [CD pipeline](sample-environment/Jenkinsfile) runs, the [environment chart](sample-environment/env) is applied using `helm install`. The snippet below shows the override values used by the *sample-api* when deployed in this environment. In this case we see the environment specific values for `DB_HOST`, `REDIS_SERVER` and so on:  
 
     ```yaml
     sample-api:
@@ -123,7 +126,7 @@ charts
 
 #### Preview Chart
 
-Each chart, because it is a Helm chart, has a similar layout, however notice how the [preview chart](sample-app/charts/preview) contains a *requirements.yaml* file. The *preview chart* is really an on-demand environment chart and the [requirements.yaml](sample-app/charts/preview/requirements.yaml) is used to list all of the application's dependencies such as an API and database needed to preview the application.  This allows the team to preview a fully functional application before merging to master. This is particularly useful with UI changes. Also, the pipeline is able to run automated end-to-end tests in a "disposable" preview environment. The following yaml snippet from the [requirements.yaml](sample-app/charts/preview/requirements.yaml) shows how the API, database and redis are deployed each time a preview environment is created.
+Each chart, because it is a Helm chart, has a similar layout, however notice how the [preview chart](sample-app/charts/preview) contains a [requirements.yaml](sample-app/charts/preview/requirements.yaml) file. The *preview chart* is really an on-demand environment chart and the [requirements.yaml](sample-app/charts/preview/requirements.yaml) is used to list all of the application's dependencies such as an API and database needed to preview the application.  This allows the team to preview a fully functional application before merging to master. This is particularly useful with UI changes. Also, the pipeline is able to run automated end-to-end tests in a "disposable" preview environment. The following yaml snippet from the [requirements.yaml](sample-app/charts/preview/requirements.yaml) shows how the API, database and redis are deployed each time a preview environment is created.
 
 ```yaml
 - name: sample-api
@@ -139,7 +142,7 @@ Each chart, because it is a Helm chart, has a similar layout, however notice how
 
 #### application chart
 
-The application chart, unlike an environment chart, is used to describe a single application.  The [templates](sample-app/charts/sample-app/templates) folder contains the Kubernetes manifest files needed to run the application. In this case we have a [deployment.yaml](sample-app/charts/sample-app/templates/deployment.yaml) and a [service.yaml](sample-app/charts/sample-app/templates/service.yaml) manifest files. Notice how these manifest files are not hardcoded.  All of the property values that can change between environments are templated.  A template directive is enclosed in `{{` and `}}` blocks. In this way the same chart can be used to deploy the application to different environments without rebuilding the application. The property values in the [application’s values.yaml](sample-app/charts/sample-app/values.yaml) contain the application defaults.  These values may be overridden when the application is deployed with the values stored in the [environment's values.yaml](sample-environment/env/values.yaml) file.  
+The [application chart](sample-app/charts/sample-app), unlike an [environment chart](sample-environment/env), is used to describe a single application.  The [templates](sample-app/charts/sample-app/templates) folder contains the Kubernetes manifest files needed to run the application. In this case we have a [deployment.yaml](sample-app/charts/sample-app/templates/deployment.yaml) and a [service.yaml](sample-app/charts/sample-app/templates/service.yaml) manifest files. Notice how these manifest files are not hardcoded.  All of the property values that can change between environments are templated.  A template directive is enclosed in `{{` and `}}` blocks. In this way the same chart can be used to deploy the application to different environments without rebuilding the application. The property values in the [application’s values.yaml](sample-app/charts/sample-app/values.yaml) contain the application defaults.  These values may be overridden when the application is deployed with the values stored in the [environment's values.yaml](sample-environment/env/values.yaml) file.  
 
 
 
