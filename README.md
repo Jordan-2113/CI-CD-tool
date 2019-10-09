@@ -1,6 +1,6 @@
 # Sample CI/CD Code
 
-Mile Two’s DevSecOps services are designed to help drive improvements in software delivery, operations and compliance. In this article we want to share with you, in some detalil, how this is accomplished by pointing at several coding samples that illistrates our approach to certain DevSecOps capabiities.
+Mile Two’s DevSecOps services are designed to help drive improvements in software delivery, operations and compliance. In this article we want to share with you, in some detail, how this is accomplished by pointing at several coding samples that illustrates our approach to certain DevSecOps capabilities.
 
 This repo is structured as follows:
 
@@ -16,16 +16,17 @@ cicd-sample             <- This repo
 
 ## GitOps
 
-We use Git as the single source of truth for declarative infrastructure and applications. All deployments start with a Pull Request. For example, to deploy a new version of the *sample-app* into the *sample-environment*, one would update [the version sample-app](sample-environment/env/requirements.yaml#L15) of in the [requirements.yaml](sample-environment/env/requirements.yaml) file.  The code snippet below illustrates the change.
+We use Git as the single source of truth for declarative infrastructure and applications. All deployments start with a Pull Request. For example, to deploy a new version of the *sample-app* into the *sample-environment*, one would update [the version number of sample-app](sample-environment/env/requirements.yaml#L15) in the [requirements.yaml](sample-environment/env/requirements.yaml) file.  The code snippet below illustrates the change.
 
 
 ```yaml
-...
 // before PR
+...
 - name: sample-app
   repository: http://jenkins-x-chartmuseum:8080
   version: 0.1.55
 ...
+
 
 // after PR
 - name: sample-app
@@ -40,8 +41,28 @@ Although the environment repo can be modified manually to deploy new versions of
 
 Each project contains a *Jenkinsfile* used to declaratively describe the pipeline:
 
-* The *Jenkinsfile* in the application repo defines a [CI pipeline](sample-app/Jenkinsfile) 
+* The *Jenkinsfile* in the application repo defines a [CI pipeline](sample-app/Jenkinsfile)
 * The *Jenkinsfile* in the environment repo defines a [CD pipeline](sample-environment/Jenkinsfile).
+
+### CI Pipeline
+
+Let's take a closer look at the [CI pipeline](sample-app/Jenkinsfile) for the application.  The high level steps are the same for all the applications, regardless of programming language:
+
+* **CI Build and push snapshot** - Builds the application and runs lint and unit tests. If successful, a preview environment is created and the application is deployed into that environment. **Note:** the preview environment will live on after the pipeline is finished so users can access the environment and manually review the changes. The preview environment is cleaned up at the end of the day by a scheduled job.
+* **e2e** - Run end-to-end tests against the application in the preview environment. The Cypress testing tool is used for e2e testing and the tests for the application are stored in the [cypress](sample-environment/cypress) folder.
+* **Build Release** - If the e2e tests are successful then a release is created. The steps for building a release are:
+  * sonar-scanner is used to perform code quality and security scanning.  The results are saved in **sonar**qube according to the [sonar-project.properties](sample-app/sonar-project.properties) file.
+  * skaffold is used to create the docker image and push it to the container registry according to the [skaffold.yaml](samle-app/skaffold.yaml) file.
+  * Jenkins X uses anchore to scan the docker image just created for CVEs.  Anchore will scan the "OS" files in the image as well as the application libraries such as node modules or python libraries. 
+
+* **Promote to Environments** - Lastly Jenkins X will automatically deploy the release into any permanent environment, marked as *Auto* deploy, in our case the *Staging* environment. It does this by updating the application version number in the [environment's requirements.yaml](sample-environment/env/requirements.yaml) file and then opening a PR for the change. The PR is automatically merged into master and this initiates the [environment's CD pipeline](sample-environment/Jenkinsfile)
+
+### CD Pipeline
+
+Let's take a look at the [environment's CD pipeline](sample-environment/Jenkinsfile) triggered in the last step of the application pipeline. 
+
+* **Validate Environment** - Validate the environment helm chart
+* **Update Environment** - Apply the environment helm chart
 
 ## Charts
 
@@ -100,7 +121,7 @@ charts
     └── values.yaml
 ```
 
-#### preview chart
+#### Preview Chart
 
 Each chart, because it is a Helm chart, has a similar layout, however notice how the [preview chart](sample-app/charts/preview) contains a *requirements.yaml* file. The *preview chart* is really an on-demand environment chart and the [requirements.yaml](sample-app/charts/preview/requirements.yaml) is used to list all of the application's dependencies such as an API and database needed to preview the application.  This allows the team to preview a fully functional application before merging to master. This is particularly useful with UI changes. Also, the pipeline is able to run automated end-to-end tests in a "disposable" preview environment. The following yaml snippet from the [requirements.yaml](sample-app/charts/preview/requirements.yaml) shows how the API, database and redis are deployed each time a preview environment is created.
 
@@ -120,9 +141,5 @@ Each chart, because it is a Helm chart, has a similar layout, however notice how
 
 The application chart, unlike an environment chart, is used to describe a single application.  The [templates](sample-app/charts/sample-app/templates) folder contains the Kubernetes manifest files needed to run the application. In this case we have a [deployment.yaml](sample-app/charts/sample-app/templates/deployment.yaml) and a [service.yaml](sample-app/charts/sample-app/templates/service.yaml) manifest files. Notice how these manifest files are not hardcoded.  All of the property values that can change between environments are templated.  A template directive is enclosed in `{{` and `}}` blocks. In this way the same chart can be used to deploy the application to different environments without rebuilding the application. The property values in the [application’s values.yaml](sample-app/charts/sample-app/values.yaml) contain the application defaults.  These values may be overridden when the application is deployed with the values stored in the [environment's values.yaml](sample-environment/env/values.yaml) file.  
 
-## Tests
 
-### unit tests
-
-### end-to-end tests
 
